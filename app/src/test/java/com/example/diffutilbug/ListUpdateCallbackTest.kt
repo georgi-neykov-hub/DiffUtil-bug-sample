@@ -2,134 +2,147 @@ package com.example.diffutilbug
 
 import androidx.core.util.Pools
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.DiffUtil_Fixed3
 import androidx.recyclerview.widget.ListUpdateCallback
 import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.change
 import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.insert
 import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.move
 import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.remove
 import org.junit.Assert
-import org.junit.Before
 import org.junit.Test
 import java.util.*
 import kotlin.collections.ArrayList
 
 class ListUpdateCallbackTest {
 
-    private lateinit var stateList: MutableList<Char>
-
     private val logger: (String) -> Unit = { print(it) }
 
-    @Before
-    fun setUp() {
-        stateList = mutableListOf()
+    @Test
+    fun test_empty_list_to_Non_Empty_List() {
+        testDiffForItems('C'..'E')
     }
 
-    private fun submitLists(vararg lists: CharSequence) =
-        this.submitLists(*lists.map { it.toList() }.toTypedArray())
-
-    private fun submitLists(vararg lists: Iterable<Char>) {
-        lists.forEach {
-            submitList(it.toList())
-        }
+    @Test
+    fun test_non_empty_list_to_empty_List() {
+        testDiffForItems('A'..'D', emptyList())
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_1() {
-        submitLists('C'..'E', 'A'..'H')
+        testDiffForItems('C'..'E', 'A'..'H')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_2() {
-        submitLists('A'..'D', 'A'..'H')
+        testDiffForItems('A'..'D', 'A'..'H')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_3() {
-        submitLists('A'..'D', 'A'..'H')
+        testDiffForItems('A'..'D', 'A'..'H')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_4() {
-        submitLists('A'..'C', ('A'..'C').reversed())
+        testDiffForItems('A'..'C', ('A'..'C').reversed())
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_5() {
-        submitLists('A'..'H', 'C'..'E')
+        testDiffForItems('A'..'H', 'C'..'E')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_6() {
-        submitLists('B'..'C', 'A'..'D')
+        testDiffForItems('B'..'C', 'A'..'D')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_7() {
-        submitLists("CDEFIJKL", "ABCDEFGHIKLMN")
+        testDiffForItems("CDEFIJKL", "ABCDEFGHIKLMN")
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_8() {
-        submitLists("CGHIK".toList(), 'A'..'I')
+        testDiffForItems("CGHIK".toList(), 'A'..'I')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_9() {
-        submitLists('A'..'D', ('A'..'E').reversed())
+        testDiffForItems('A'..'D', ('A'..'E').reversed())
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_10() {
-        submitLists('A'..'D', ('A'..'C').reversed())
+        testDiffForItems('A'..'D', ('A'..'C').reversed())
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_11() {
-        submitLists('B'..'D', ('A'..'D').reversed())
+        testDiffForItems('B'..'D', ('A'..'D').reversed())
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_12() {
-        submitLists('A'..'D', ('A'..'D').reversed().plus('E'..'F'))
+        testDiffForItems('A'..'D', ('A'..'D').reversed().plus('E'..'F'))
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_13() {
-        submitLists("BDF".toList(), 'A'..'G')
+        testDiffForItems("BDF".toList(), 'A'..'G')
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_14() {
-        submitLists('A'..'D', ('A'..'D').reversed().plus('E'))
+        testDiffForItems('A'..'D', ('A'..'D').reversed().plus('E'))
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_15() {
-        submitLists('A'..'D', ('A'..'D').reversed().plus('E'..'G'))
+        testDiffForItems('A'..'D', ('A'..'D').reversed().plus('E'..'G'))
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_16() {
-        submitLists("BDF".toList(), ('A'..'D').plus('F'..'M'))
+        testDiffForItems("BDF".toList(), ('A'..'D').plus('F'..'M'))
     }
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_17() {
-        submitLists('A'..'F', 'A'..'Z', ('1'..'5').plus("FFGHQRXYZ".toList()))
+        testDiffForItems('A'..'C', 'A'..'G', ('1'..'5').plus("FFGHQRXYZ".toList()))
     }
 
-    private fun submitList(nextList: List<Char>) {
-        logger("\nSubmit list:\n Old: $stateList\n New: ${nextList}\n\n")
-        stateList.patchTo(nextList, detectMoves = true)
-        assertConsistency(stateList, nextList)
+    private fun testDiffForItems(vararg lists: CharSequence) =
+        this.testDiffForItems(*lists.map { it.toList() }.toTypedArray())
+
+    private fun testDiffForItems(vararg lists: Iterable<Char>) {
+        val state = mutableListOf<Char>()
+        lists.forEach {
+            diffList(state, it.toList())
+        }
     }
 
-    fun <T> assertConsistency(actualList: List<T>, nextList: List<T>) {
+
+    private fun diffList(currentList: MutableList<Char>, nextList: List<Char>) {
+        logger("\nSubmit list:\n Old: $currentList\n New: ${nextList}\n\n")
+
+        logger("\nScript without move detection:\n\n")
+        val stateCopy = currentList.toMutableList()
+        stateCopy.patchTo(nextList, detectMoves = false)
+        assertConsistency(stateCopy, nextList)
+
+        logger("\nScript with move detection:\n\n")
+        currentList.patchTo(nextList)
+        assertConsistency(currentList, nextList)
+        assertConsistency(stateCopy, currentList)
+    }
+
+    private fun <T> assertConsistency(actualList: List<T>, nextList: List<T>) {
 
         if (nextList.size != actualList.size) {
             Assert.assertEquals(
                 "Item count mismatch, expected (${nextList.size}), but was (${actualList.size}).",
-                nextList, stateList
+                nextList, actualList
             )
         }
         for (position in nextList.indices) {
@@ -169,7 +182,7 @@ fun <T> MutableList<T>.patchTo(
             clear()
         } else {
             val stateList = this
-            val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            val diffResult = DiffUtil_Fixed3.calculateDiff(object : DiffUtil.Callback() {
                 override fun areItemsTheSame(
                     oldItemPosition: Int,
                     newItemPosition: Int
@@ -202,12 +215,7 @@ fun <T> MutableList<T>.patchTo(
                 }
 
                 override fun onInserted(position: Int, count: Int) {
-                    val startPos = if (position > 0) {
-                        diffResult.convertOldPositionToNew(position - 1) + 1
-                    } else {
-                        0
-                    }
-                    stateList.addAll(position, nextList.subList(startPos, startPos + count))
+                    stateList.addAll(position, nextList.subList(position, position + count))
                 }
 
                 override fun onRemoved(position: Int, count: Int) {
