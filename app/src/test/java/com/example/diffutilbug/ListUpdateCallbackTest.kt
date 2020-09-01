@@ -1,17 +1,10 @@
 package com.example.diffutilbug
 
-import androidx.core.util.Pools
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.DiffUtil_Fixed3
+import androidx.recyclerview.widget.DiffUtil_4
 import androidx.recyclerview.widget.ListUpdateCallback
-import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.change
-import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.insert
-import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.move
-import com.example.diffutilbug.ReportingListUpdateCallback.DiffOperation.Companion.remove
 import org.junit.Assert
 import org.junit.Test
-import java.util.*
-import kotlin.collections.ArrayList
 
 class ListUpdateCallbackTest {
 
@@ -74,7 +67,7 @@ class ListUpdateCallbackTest {
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_10() {
-        testDiffForItems('A'..'D', ('A'..'C').reversed())
+        testDiffForItems("ABC", "CBDA")
     }
 
     @Test
@@ -84,7 +77,7 @@ class ListUpdateCallbackTest {
 
     @Test
     fun listUpdateCallback_Changes_Are_Reported_In_Order_12() {
-        testDiffForItems('A'..'D', ('A'..'D').reversed().plus('E'..'F'))
+        testDiffForItems('A'..'C', ('A'..'C').reversed().plus('E'..'F'))
     }
 
     @Test
@@ -112,27 +105,83 @@ class ListUpdateCallbackTest {
         testDiffForItems('A'..'C', 'A'..'G', ('1'..'5').plus("FFGHQRXYZ".toList()))
     }
 
+    @Test
+    fun item_changes_are_correct_for_lists_with_duplicate_items_1() {
+        testDiffForItems("ABBCCD", "CDCBAB")
+    }
+
+    @Test
+    fun item_changes_are_correct_for_lists_with_duplicate_items_2() {
+        testDiffForItems("AAXBB", "AXAXBXB")
+    }
+
+    @Test
+    fun item_changes_are_correct_for_lists_with_duplicate_items_3() {
+        testDiffForItems(mutableListOf<Char?>().apply {
+            this += 'A'
+            this.add(null)
+            this += 'B'
+            this.add(null)
+            this.add(null)
+            this += 'B'
+            this += 'A'
+        }, mutableListOf<Char?>().apply {
+            this += 'A'
+            this += 'A'
+            this.add(null)
+            this.add(null)
+            this.add(null)
+            this += 'B'
+            this += 'B'
+        })
+    }
+
+    @Test
+    fun test_Item_Content_Changes_1() {
+        testDiffForItems("ABCD", "abcd")
+    }
+
+    @Test
+    fun test_Item_Content_Changes_2() {
+        testDiffForItems("ABCD", "aBcD")
+    }
+
+    @Test
+    fun test_Item_Content_Changes_With_Moved_Items_1() {
+        testDiffForItems("ABCD", "bcda")
+    }
+
+    @Test
+    fun test_Item_Content_Changes_With_Moved_Items_2() {
+        testDiffForItems("abcd", "BCDA")
+    }
+
+    @Test
+    fun test_Item_Content_Changes_With_Moved_Items_3() {
+        testDiffForItems("aBCd", "bcDA")
+    }
+
     private fun testDiffForItems(vararg lists: CharSequence) =
         this.testDiffForItems(*lists.map { it.toList() }.toTypedArray())
 
-    private fun testDiffForItems(vararg lists: Iterable<Char>) {
-        val state = mutableListOf<Char>()
+    private fun testDiffForItems(vararg lists: Iterable<Char?>) {
+        val state = mutableListOf<Char?>()
         lists.forEach {
             diffList(state, it.toList())
         }
     }
 
 
-    private fun diffList(currentList: MutableList<Char>, nextList: List<Char>) {
-        logger("\nSubmit list:\n Old: $currentList\n New: ${nextList}\n\n")
-
-        logger("\nScript without move detection:\n\n")
+    private fun diffList(currentList: MutableList<Char?>, nextList: List<Char?>) {
+        logger("\nScript without move detection:\n")
+        logger("Diff: $currentList -> ${nextList}\n")
         val stateCopy = currentList.toMutableList()
-        stateCopy.patchTo(nextList, detectMoves = false)
+        stateCopy.patchTo(nextList, detectMoves = false, itemCallback = CHAR_DIFF_ITEM_CALLBACK)
         assertConsistency(stateCopy, nextList)
 
         logger("\nScript with move detection:\n\n")
-        currentList.patchTo(nextList)
+        logger("\nDiff: $currentList -> ${nextList}\n")
+        currentList.patchTo(nextList, detectMoves = true, itemCallback = CHAR_DIFF_ITEM_CALLBACK)
         assertConsistency(currentList, nextList)
         assertConsistency(stateCopy, currentList)
     }
@@ -159,6 +208,16 @@ class ListUpdateCallbackTest {
 
 }
 
+private val CHAR_DIFF_ITEM_CALLBACK = object : DiffUtil.ItemCallback<Char?>() {
+    override fun areItemsTheSame(oldItem: Char, newItem: Char): Boolean {
+        return oldItem?.toLowerCase() == newItem?.toLowerCase()
+    }
+
+    override fun areContentsTheSame(oldItem: Char, newItem: Char): Boolean {
+        return oldItem == newItem
+    }
+}
+
 private val DEFAULT_DIFF_ITEM_CALLBACK = object : DiffUtil.ItemCallback<Any?>() {
     override fun areItemsTheSame(oldItem: Any, newItem: Any) = oldItem == newItem
     override fun areContentsTheSame(oldItem: Any, newItem: Any) = true
@@ -173,56 +232,77 @@ fun <T> MutableList<T>.patchTo(
     itemCallback: DiffUtil.ItemCallback<T> = defaultItemCallback(),
     detectMoves: Boolean = true
 ) {
-    if (this.isEmpty()) {
-        if (nextList.isNotEmpty()) {
-            addAll(nextList)
+    val stateList = this
+    val oldListSize = stateList.size
+    val nextListSize = nextList.size
+    val diffResult = DiffUtil_4.calculateDiff(object : DiffUtil.Callback() {
+        override fun areItemsTheSame(
+            oldItemPosition: Int,
+            newItemPosition: Int
+        ): Boolean {
+            val oldItem = stateList[oldItemPosition]
+            val newItem = nextList[newItemPosition]
+            return (oldItem != null && newItem != null) && itemCallback.areItemsTheSame(
+                oldItem,
+                newItem
+            )
         }
-    } else {
-        if (nextList.isEmpty()) {
-            clear()
-        } else {
-            val stateList = this
-            val diffResult = DiffUtil_Fixed3.calculateDiff(object : DiffUtil.Callback() {
-                override fun areItemsTheSame(
-                    oldItemPosition: Int,
-                    newItemPosition: Int
-                ) = itemCallback.areItemsTheSame(
-                    stateList[oldItemPosition],
-                    nextList[newItemPosition]
-                )
 
-                override fun getOldListSize() = stateList.size
+        override fun getOldListSize() = oldListSize
 
-                override fun getNewListSize() = nextList.size
+        override fun getNewListSize() = nextListSize
 
-                override fun areContentsTheSame(
-                    oldItemPosition: Int,
-                    newItemPosition: Int
-                ) = itemCallback.areContentsTheSame(
-                    stateList[oldItemPosition],
-                    nextList[newItemPosition]
-                )
-            }, detectMoves)
-            diffResult.dispatchUpdatesTo(object : ListUpdateCallback {
-                override fun onChanged(position: Int, count: Int, payload: Any?) {
-                    for (i in position until (position + count)) {
-                        stateList[i] = nextList[i]
-                    }
-                }
+        override fun areContentsTheSame(
+            oldItemPosition: Int,
+            newItemPosition: Int
+        ) = itemCallback.areContentsTheSame(
+            stateList[oldItemPosition],
+            nextList[newItemPosition]
+        )
+    }, detectMoves)
+    diffResult.dispatchUpdatesTo(object : ListUpdateCallback {
 
-                override fun onMoved(fromPosition: Int, toPosition: Int) {
-                    stateList.add(toPosition, stateList.removeAt(fromPosition))
-                }
+        override fun onChanged(position: Int, count: Int, payload: Any?) {
 
-                override fun onInserted(position: Int, count: Int) {
-                    stateList.addAll(position, nextList.subList(position, position + count))
-                }
-
-                override fun onRemoved(position: Int, count: Int) {
-                    repeat(count) { stateList.removeAt(position) }
-                }
-            }.logChanges(target = stateList))
+            var oldIndex = position
+            val endIndex = position + count
+            while (oldIndex < endIndex) {
+                val newIndex = diffResult.convertOldPositionToNew(oldIndex)
+                stateList[oldIndex] = nextList[newIndex]
+                oldIndex++
+            }
         }
+
+        override fun onMoved(fromPosition: Int, toPosition: Int) {
+            stateList.add(toPosition, stateList.removeAt(fromPosition))
+        }
+
+        override fun onInserted(position: Int, count: Int) {
+            val startPos = if (position > 0) {
+                diffResult.convertOldPositionToNew(position - 1) + 1
+            } else {
+                0
+            }
+            stateList.addAll(position, nextList.subList(startPos, startPos + count))
+        }
+
+        override fun onRemoved(position: Int, count: Int) {
+            repeat(count) { stateList.removeAt(position) }
+        }
+    }.logChanges(target = stateList))
+}
+
+fun emptyCallback() = object : ListUpdateCallback {
+    override fun onChanged(position: Int, count: Int, payload: Any?) {
+    }
+
+    override fun onMoved(fromPosition: Int, toPosition: Int) {
+    }
+
+    override fun onInserted(position: Int, count: Int) {
+    }
+
+    override fun onRemoved(position: Int, count: Int) {
     }
 }
 
@@ -266,194 +346,5 @@ class LoggingListUpdateCallback(
         delegate.onRemoved(position, count)
         stateList?.let { logger("$state -> $stateList") }
         logger(System.lineSeparator())
-    }
-}
-
-
-internal class ReportingListUpdateCallback(
-    val stateList: MutableList<Any?> = ArrayList(),
-    private val logger: (String) -> Unit = { print(it) }
-) : ListUpdateCallback {
-
-    private var diffTargetSourceProvider: (() -> List<Any?>)? = null
-    private val targetSource: List<Any?>
-        get() = diffTargetSourceProvider?.invoke() ?: emptyList()
-
-    internal enum class OperationType {
-        REMOVE, INSERT, MOVE, CHANGE;
-
-        override fun toString(): String {
-            return this.name.substring(0, 1)
-        }
-    }
-
-    internal sealed class DiffOperation(val type: OperationType) {
-
-        companion object {
-            private val insertOperationsPool = Pools.SynchronizedPool<Insert>(50)
-            private val removeOperationsPool = Pools.SynchronizedPool<Remove>(50)
-            private val moveOperationsPool = Pools.SynchronizedPool<Move>(50)
-            private val changeOperationsPool = Pools.SynchronizedPool<Change>(50)
-
-            fun insert(position: Int, count: Int) = insertOperationsPool.acquire()
-                ?.apply { this.position = position; this.count = count } ?: Insert(position, count)
-
-            fun remove(position: Int, count: Int) = removeOperationsPool.acquire()
-                ?.apply { this.position = position; this.count = count } ?: Remove(position, count)
-
-            fun move(from: Int, to: Int) =
-                moveOperationsPool.acquire()?.apply { this.from = from; this.to = to } ?: Move(
-                    from,
-                    to
-                )
-
-            fun change(position: Int, count: Int, payload: Any? = null) =
-                changeOperationsPool.acquire()
-                    ?.apply { this.position = position; this.count = count } ?: Change(
-                    position,
-                    count,
-                    payload
-                )
-        }
-
-        abstract fun recycle(): Boolean
-
-        data class Insert internal constructor(var position: Int, var count: Int) :
-            DiffOperation(OperationType.INSERT) {
-
-            override fun recycle() = insertOperationsPool.release(this)
-
-            override fun toString(): String = "I(position=$position, count=$count)"
-        }
-
-        data class Remove internal constructor(var position: Int, var count: Int) :
-            DiffOperation(OperationType.REMOVE) {
-            override fun recycle() = removeOperationsPool.release(this)
-
-            override fun toString(): String = "R(position=$position, count=$count)"
-        }
-
-        data class Move internal constructor(var from: Int, var to: Int) :
-            DiffOperation(OperationType.MOVE) {
-
-            override fun recycle() = moveOperationsPool.release(this)
-
-            override fun toString(): String = "M(from=$from, to=$to)"
-        }
-
-        data class Change internal constructor(
-            var position: Int,
-            var count: Int,
-            var payload: Any? = null
-        ) : DiffOperation(OperationType.CHANGE) {
-
-            override fun recycle() = changeOperationsPool.release(this)
-
-            override fun toString(): String =
-                "C(position=$position, count=$count,${payload?.let { ", L: $it" } ?: ""})"
-        }
-    }
-
-    private val insertRemoveOperations: Deque<DiffOperation> = LinkedList()
-    private val moveChangeOperations: Deque<DiffOperation> = LinkedList()
-
-    private fun enqueueOperation(operation: DiffOperation) {
-        logger("$operation${System.lineSeparator()}")
-
-        when (operation.type) {
-            OperationType.REMOVE, OperationType.INSERT -> insertRemoveOperations
-            OperationType.MOVE, OperationType.CHANGE -> moveChangeOperations
-        }.push(operation)
-    }
-
-    fun executeOperations() {
-        logger("Execute:${System.lineSeparator()}")
-
-        var startOffset = 0
-        while (insertRemoveOperations.isNotEmpty()) {
-            executeOperation(insertRemoveOperations.pop()) { operation ->
-                when (operation) {
-                    is DiffOperation.Remove -> {
-                        repeat(operation.count) { stateList.removeAt(operation.position + startOffset) }
-                        startOffset -= operation.count
-                    }
-                    is DiffOperation.Insert -> {
-                        val newElements = ArrayList<Any?>()
-                        for (i in operation.position + startOffset until operation.position + startOffset + operation.count) {
-                            newElements.add(targetSource[i])
-                        }
-                        stateList.addAll(operation.position + startOffset, newElements)
-                        startOffset += operation.count
-                    }
-                    else -> throw IllegalStateException()
-                }
-                operation.recycle()
-            }
-        }
-
-        while (moveChangeOperations.isNotEmpty()) {
-            executeOperation(moveChangeOperations.removeLast()) { operation ->
-                when (operation) {
-                    is DiffOperation.Move -> {
-                        stateList.add(
-                            operation.to,
-                            stateList.removeAt(operation.from)
-                        )
-                    }
-                    else -> throw IllegalStateException()
-                }
-                operation.recycle()
-            }
-        }
-    }
-
-    fun setSource(source: (() -> List<Any?>)?) {
-        if (diffTargetSourceProvider != source) {
-            this.diffTargetSourceProvider = source
-            this.stateList.clear()
-            this.stateList.addAll(targetSource)
-        }
-    }
-
-    override fun onChanged(position: Int, count: Int, payload: Any?) {
-        enqueueOperation(change(position, count, payload))
-    }
-
-    override fun onMoved(fromPosition: Int, toPosition: Int) {
-        enqueueOperation(move(fromPosition, toPosition))
-    }
-
-    override fun onInserted(position: Int, count: Int) {
-        enqueueOperation(insert(position, count))
-    }
-
-    override fun onRemoved(position: Int, count: Int) {
-        enqueueOperation(remove(position, count))
-    }
-
-    override fun toString(): String = stateList.toString()
-
-    private inline fun executeOperation(
-        op: DiffOperation,
-        crossinline operation: (DiffOperation) -> Unit
-    ) {
-        logger("${op.toString().padEnd(25)} $this -> ")
-        var error: Throwable? = null
-        try {
-            operation.invoke(op)
-        } catch (error1: Exception) {
-            error = error1
-            throw error1
-        } finally {
-            if (error != null) {
-                logger("(Error) ${error.javaClass.simpleName}${System.lineSeparator()}")
-            } else {
-                logger("$this${System.lineSeparator()}")
-            }
-        }
-    }
-
-    private fun checkSourceAttached() {
-        check(diffTargetSourceProvider !== null) { "setSource() not called." }
     }
 }
